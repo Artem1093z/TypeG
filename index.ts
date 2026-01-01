@@ -1,83 +1,97 @@
-import { EventsSDK, ObjectManager, GameRules, Menu } from "github.com/octarine-public/wrapper/index";
+
+// Импортируем только то, что есть в официальном примере + ObjectManager для героя
+import {
+    EventsSDK,
+    GameRules,
+    Menu,
+    ObjectManager,
+    TickSleeper
+} from "github.com/octarine-public/wrapper/index"
 
 // ==========================================================
-// 1. НАСТРОЙКА МЕНЮ
+// 1. НАСТРОЙКА МЕНЮ (По новому стандарту)
 // ==========================================================
 
-// Создаем папку "My Armlet" внутри "Custom Scripts"
-const PATH = ["Custom Scripts", "My Armlet"];
+// Создаем главную категорию в меню
+const entry = Menu.AddEntry("My Scripts")
 
-// Добавляем переключатель (Включить/Выключить)
-const menuEnable = Menu.AddToggle(PATH, "Active", false);
+// Создаем подраздел с иконкой армлета
+const tree = entry.AddNode("Armlet Abuse", "panorama/images/items/armlet_png.vtex_c")
 
-// Добавляем ползунок для ХП
-const menuMinHP = Menu.AddSlider(PATH, "Threshold HP", 100, 1000, 350, 10);
+// Добавляем настройки
+const State = tree.AddToggle("Active", false)
+const MinHP = tree.AddSlider("HP Threshold", 350, 100, 1000)
+const Delay = tree.AddSlider("Toggle Delay (ms)", 150, 0, 500)
 
-// Добавляем задержку (пинг)
-const menuDelay = Menu.AddSlider(PATH, "Toggle Delay (ms)", 0, 500, 150, 10);
-
+// Используем слипер для задержек (как в примере Kunkka)
+const sleeper = new TickSleeper()
+let pendingToggleOn = false
 
 // ==========================================================
-// 2. ЛОГИКА СКРИПТА
+// 2. ЛОГИКА
 // ==========================================================
 
-let lastToggleTime = 0;
-let pendingToggleOn = false;
-
-console.log("[My Armlet] Script loaded! Check the menu.");
-
-EventsSDK.on("Update", () => {
-    // Если скрипт выключен в меню - ничего не делаем
-    if (!menuEnable.value) return;
-
-    // Проверки валидности
-    if (!GameRules || GameRules.IsPaused()) return;
-    const me = ObjectManager.LocalHero;
-    if (!me || !me.IsValid() || !me.IsAlive()) return;
-
-    // Читаем настройки прямо из меню (а не из констант)
-    const threshold = menuMinHP.value;
-    const delay = menuDelay.value;
-
-    const armlet = me.GetItem("item_armlet");
-    if (!armlet) return;
-
-    const currentTime = Date.now();
-
-    // Логика возврата (ВКЛЮЧЕНИЕ)
-    if (pendingToggleOn) {
-        if (currentTime - lastToggleTime >= delay) {
-            armlet.Cast(); // Включаем
-            pendingToggleOn = false;
-            lastToggleTime = currentTime;
-        }
-        return;
+EventsSDK.on("Tick", () => {
+    // Базовые проверки: скрипт включен? игра идет? паузы нет?
+    if (!State.value || !GameRules || GameRules.IsPaused) {
+        return
     }
 
-    // Логика абуза (ВЫКЛЮЧЕНИЕ)
-    const myHealth = me.Health;
+    // Получаем нашего героя
+    const me = ObjectManager.LocalHero
+    if (!me || !me.IsAlive) {
+        return
+    }
 
-    // Используем threshold из меню
-    if (myHealth < threshold && (currentTime - lastToggleTime > 500)) {
+    // Ищем армлет
+    const armlet = me.GetItem("item_armlet")
+    if (!armlet) {
+        return
+    }
+
+    // Если "спим" (ждем задержку) - выходим
+    if (sleeper.Sleeping) {
+        return
+    }
+
+    // --- ЛОГИКА ВОЗВРАТА (ВКЛЮЧЕНИЕ) ---
+    if (pendingToggleOn) {
+        armlet.Cast() // Включаем обратно
+        pendingToggleOn = false
+        // Небольшая задержка после включения, чтобы не спамить
+        sleeper.Sleep(100)
+        return
+    }
+
+    // --- ЛОГИКА АБУЗА (ВЫКЛЮЧЕНИЕ) ---
+    const myHealth = me.Health
+    
+    // Если здоровье меньше порога (из меню)
+    if (myHealth < MinHP.value) {
         
-        // Проверка: включен ли армлет?
-        // Используем проверку баффа, так надежнее
-        const isArmletActive = me.HasModifier("modifier_item_armlet_unholy_strength");
+        // Проверяем, включен ли армлет (через модификатор или свойство)
+        // В примере Кунки свойства смотрят через методы, попробуем IsToggled если есть, или бафф
+        const hasBuff = me.HasModifier("modifier_item_armlet_unholy_strength")
 
-        if (isArmletActive) {
-            armlet.Cast(); // Выключаем
-            pendingToggleOn = true;
-            lastToggleTime = currentTime;
+        if (hasBuff) {
+            // 1. Выключаем
+            armlet.Cast()
+            
+            // 2. Говорим, что надо включить обратно
+            pendingToggleOn = true
+            
+            // 3. Ждем указанную задержку (из меню) перед следующим шагом
+            sleeper.Sleep(Delay.value)
         } else {
             // Если выключен, но хп мало - просто включаем
-            armlet.Cast();
-            lastToggleTime = currentTime;
+            armlet.Cast()
+            sleeper.Sleep(100)
         }
     }
-});
+})
 
-// Сброс при начале новой игры
-EventsSDK.on("GameStarted", () => {
-    pendingToggleOn = false;
-    lastToggleTime = 0;
-});
+// Сброс таймеров при конце игры
+EventsSDK.on("GameEnded", () => {
+    sleeper.ResetTimer()
+    pendingToggleOn = false
+})
