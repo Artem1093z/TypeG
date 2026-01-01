@@ -1,0 +1,8 @@
+{
+  "name": "dota-script",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "dependencies": {
+    "github.com/octarine-public/wrapper": "https://github.com/octarine-public/wrapper"
+  }
+}
