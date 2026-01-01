@@ -1,97 +1,61 @@
+import { EventsSDK, GameRules, Menu, ObjectManager, TickSleeper } from "github.com/octarine-public/wrapper/index";
 
-// Импортируем только то, что есть в официальном примере + ObjectManager для героя
-import {
-    EventsSDK,
-    GameRules,
-    Menu,
-    ObjectManager,
-    TickSleeper
-} from "github.com/octarine-public/wrapper/index"
+// === МЕНЮ ===
+// 1. Создаем категорию (как "Utility" у Кунки)
+const entry = Menu.AddEntry("My Scripts");
 
-// ==========================================================
-// 1. НАСТРОЙКА МЕНЮ (По новому стандарту)
-// ==========================================================
+// 2. Создаем узел (как "Kunkka AutoStacker")
+const node = entry.AddNode("Armlet Abuse", "panorama/images/items/armlet_png.vtex_c");
 
-// Создаем главную категорию в меню
-const entry = Menu.AddEntry("My Scripts")
+// 3. Создаем настройки
+const toggleState = node.AddToggle("Enable Script", true);
+const sliderHP = node.AddSlider("Min HP", 350, 100, 1000);
+const sliderDelay = node.AddSlider("Ping Delay (ms)", 100, 0, 500);
 
-// Создаем подраздел с иконкой армлета
-const tree = entry.AddNode("Armlet Abuse", "panorama/images/items/armlet_png.vtex_c")
+// === ЛОГИКА ===
+const sleeper = new TickSleeper();
+let pendingToggleOn = false;
 
-// Добавляем настройки
-const State = tree.AddToggle("Active", false)
-const MinHP = tree.AddSlider("HP Threshold", 350, 100, 1000)
-const Delay = tree.AddSlider("Toggle Delay (ms)", 150, 0, 500)
-
-// Используем слипер для задержек (как в примере Kunkka)
-const sleeper = new TickSleeper()
-let pendingToggleOn = false
-
-// ==========================================================
-// 2. ЛОГИКА
-// ==========================================================
+// Лог для проверки в консоли (localhost:9222)
+console.log("[Armlet] Script Loaded!");
 
 EventsSDK.on("Tick", () => {
-    // Базовые проверки: скрипт включен? игра идет? паузы нет?
-    if (!State.value || !GameRules || GameRules.IsPaused) {
-        return
-    }
+    // Проверки
+    if (!toggleState.value || !GameRules || GameRules.IsPaused) return;
+    const me = ObjectManager.LocalHero;
+    if (!me || !me.IsAlive) return;
 
-    // Получаем нашего героя
-    const me = ObjectManager.LocalHero
-    if (!me || !me.IsAlive) {
-        return
-    }
+    const armlet = me.GetItem("item_armlet");
+    if (!armlet) return;
 
-    // Ищем армлет
-    const armlet = me.GetItem("item_armlet")
-    if (!armlet) {
-        return
-    }
+    if (sleeper.Sleeping) return;
 
-    // Если "спим" (ждем задержку) - выходим
-    if (sleeper.Sleeping) {
-        return
-    }
-
-    // --- ЛОГИКА ВОЗВРАТА (ВКЛЮЧЕНИЕ) ---
+    // Логика ВКЛЮЧЕНИЯ (возврат)
     if (pendingToggleOn) {
-        armlet.Cast() // Включаем обратно
-        pendingToggleOn = false
-        // Небольшая задержка после включения, чтобы не спамить
-        sleeper.Sleep(100)
-        return
+        armlet.Cast();
+        pendingToggleOn = false;
+        sleeper.Sleep(150); // Небольшая пауза
+        return;
     }
 
-    // --- ЛОГИКА АБУЗА (ВЫКЛЮЧЕНИЕ) ---
-    const myHealth = me.Health
-    
-    // Если здоровье меньше порога (из меню)
-    if (myHealth < MinHP.value) {
-        
-        // Проверяем, включен ли армлет (через модификатор или свойство)
-        // В примере Кунки свойства смотрят через методы, попробуем IsToggled если есть, или бафф
-        const hasBuff = me.HasModifier("modifier_item_armlet_unholy_strength")
-
-        if (hasBuff) {
-            // 1. Выключаем
-            armlet.Cast()
-            
-            // 2. Говорим, что надо включить обратно
-            pendingToggleOn = true
-            
-            // 3. Ждем указанную задержку (из меню) перед следующим шагом
-            sleeper.Sleep(Delay.value)
+    // Логика ВЫКЛЮЧЕНИЯ (абуз)
+    if (me.Health < sliderHP.value) {
+        // Проверяем бафф (включен ли армлет сейчас)
+        if (me.HasModifier("modifier_item_armlet_unholy_strength")) {
+            // Выключаем
+            armlet.Cast();
+            pendingToggleOn = true;
+            // Ждем задержку перед включением
+            sleeper.Sleep(sliderDelay.value);
         } else {
-            // Если выключен, но хп мало - просто включаем
-            armlet.Cast()
-            sleeper.Sleep(100)
+            // Если выключен, но хп мало - включаем
+            armlet.Cast();
+            sleeper.Sleep(150);
         }
     }
-})
+});
 
-// Сброс таймеров при конце игры
 EventsSDK.on("GameEnded", () => {
-    sleeper.ResetTimer()
-    pendingToggleOn = false
-})
+    sleeper.ResetTimer();
+    pendingToggleOn = false;
+});
