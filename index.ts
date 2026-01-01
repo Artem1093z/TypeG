@@ -1,61 +1,59 @@
-import { EventsSDK, GameRules, Menu, ObjectManager, TickSleeper } from "github.com/octarine-public/wrapper/index";
+
+import { 
+    EventsSDK, 
+    GameRules, 
+    Menu, 
+    ObjectManager, 
+    TickSleeper,
+    RendererSDK, // Импортируем рисовалку
+    Color,       // Импортируем цвета
+    Vector2      // Импортируем векторы
+} from "github.com/octarine-public/wrapper/index";
 
 // === МЕНЮ ===
-// 1. Создаем категорию (как "Utility" у Кунки)
 const entry = Menu.AddEntry("My Scripts");
+const node = entry.AddNode("Armlet Debug", "panorama/images/items/armlet_png.vtex_c");
+const toggleState = node.AddToggle("Active", true);
 
-// 2. Создаем узел (как "Kunkka AutoStacker")
-const node = entry.AddNode("Armlet Abuse", "panorama/images/items/armlet_png.vtex_c");
-
-// 3. Создаем настройки
-const toggleState = node.AddToggle("Enable Script", true);
-const sliderHP = node.AddSlider("Min HP", 350, 100, 1000);
-const sliderDelay = node.AddSlider("Ping Delay (ms)", 100, 0, 500);
-
-// === ЛОГИКА ===
+console.log("SCRIPT STARTED"); // Это уйдет в отладчик
 const sleeper = new TickSleeper();
-let pendingToggleOn = false;
 
-// Лог для проверки в консоли (localhost:9222)
-console.log("[Armlet] Script Loaded!");
+// === РИСОВАНИЕ НА ЭКРАНЕ (ЧТОБЫ ВИДЕТЬ БЕЗ ОТЛАДЧИКА) ===
+EventsSDK.on("Draw", () => {
+    // Рисуем текст в координатах 100, 100 (левый верхний угол)
+    RendererSDK.Text(
+        "ARMLET SCRIPT: LOADED & WORKING", 
+        new Vector2(100, 100), 
+        Color.Green, 
+        undefined, // шрифт дефолтный
+        20 // размер шрифта
+    );
 
-EventsSDK.on("Tick", () => {
-    // Проверки
-    if (!toggleState.value || !GameRules || GameRules.IsPaused) return;
-    const me = ObjectManager.LocalHero;
-    if (!me || !me.IsAlive) return;
-
-    const armlet = me.GetItem("item_armlet");
-    if (!armlet) return;
-
-    if (sleeper.Sleeping) return;
-
-    // Логика ВКЛЮЧЕНИЯ (возврат)
-    if (pendingToggleOn) {
-        armlet.Cast();
-        pendingToggleOn = false;
-        sleeper.Sleep(150); // Небольшая пауза
-        return;
-    }
-
-    // Логика ВЫКЛЮЧЕНИЯ (абуз)
-    if (me.Health < sliderHP.value) {
-        // Проверяем бафф (включен ли армлет сейчас)
-        if (me.HasModifier("modifier_item_armlet_unholy_strength")) {
-            // Выключаем
-            armlet.Cast();
-            pendingToggleOn = true;
-            // Ждем задержку перед включением
-            sleeper.Sleep(sliderDelay.value);
-        } else {
-            // Если выключен, но хп мало - включаем
-            armlet.Cast();
-            sleeper.Sleep(150);
-        }
+    if (toggleState.value) {
+        RendererSDK.Text("STATE: ON", new Vector2(100, 120), Color.White, undefined, 18);
+    } else {
+        RendererSDK.Text("STATE: OFF", new Vector2(100, 120), Color.Red, undefined, 18);
     }
 });
 
-EventsSDK.on("GameEnded", () => {
-    sleeper.ResetTimer();
-    pendingToggleOn = false;
+// === ЛОГИКА ===
+EventsSDK.on("Tick", () => {
+    if (!toggleState.value || !GameRules || GameRules.IsPaused) return;
+    const me = ObjectManager.LocalHero;
+    if (!me || !me.IsAlive) return;
+    
+    // Тут твоя логика армлета...
+    const armlet = me.GetItem("item_armlet");
+    if (!armlet) return;
+    if (sleeper.Sleeping) return;
+
+    if (me.Health < 350) {
+         if (me.HasModifier("modifier_item_armlet_unholy_strength")) {
+             armlet.Cast();
+             sleeper.Sleep(150);
+         } else {
+             armlet.Cast();
+             sleeper.Sleep(100);
+         }
+    }
 });
