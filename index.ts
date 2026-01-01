@@ -1,86 +1,83 @@
-// Импортируем необходимые модули из враппера
-// ВАЖНО: Проверьте, что ObjectManager и другие классы экспортируются в wrapper/index.ts
-import { EventsSDK, ObjectManager, GameRules } from "github.com/octarine-public/wrapper/index";
+import { EventsSDK, ObjectManager, GameRules, Menu } from "github.com/octarine-public/wrapper/index";
 
-// Настройки скрипта
-const CONFIG = {
-    MinHP: 350,              // Порог ХП для абуза
-    ArmletName: "item_armlet",
-    ToggleDelay: 150,        // Задержка в мс между выкл и вкл (зависит от пинга)
-    SafeMode: true           // Не переключать, если мы невидимы (Riki/Bounty Hunter)
-};
+// ==========================================================
+// 1. НАСТРОЙКА МЕНЮ
+// ==========================================================
 
-// Переменные состояния
+// Создаем папку "My Armlet" внутри "Custom Scripts"
+const PATH = ["Custom Scripts", "My Armlet"];
+
+// Добавляем переключатель (Включить/Выключить)
+const menuEnable = Menu.AddToggle(PATH, "Active", false);
+
+// Добавляем ползунок для ХП
+const menuMinHP = Menu.AddSlider(PATH, "Threshold HP", 100, 1000, 350, 10);
+
+// Добавляем задержку (пинг)
+const menuDelay = Menu.AddSlider(PATH, "Toggle Delay (ms)", 0, 500, 150, 10);
+
+
+// ==========================================================
+// 2. ЛОГИКА СКРИПТА
+// ==========================================================
+
 let lastToggleTime = 0;
-let pendingToggleOn = false; // Флаг ожидания включения
+let pendingToggleOn = false;
 
-console.log("[ArmletScript] Loaded successfully!");
+console.log("[My Armlet] Script loaded! Check the menu.");
 
-// Подписываемся на обновление кадра (Update или GameLoop)
 EventsSDK.on("Update", () => {
-    // 1. Проверяем, в игре ли мы
-    if (!GameRules || GameRules.IsPaused()) return;
+    // Если скрипт выключен в меню - ничего не делаем
+    if (!menuEnable.value) return;
 
-    // 2. Получаем своего героя
+    // Проверки валидности
+    if (!GameRules || GameRules.IsPaused()) return;
     const me = ObjectManager.LocalHero;
     if (!me || !me.IsValid() || !me.IsAlive()) return;
 
-    // 3. Проверка на инвиз (опционально, чтобы не спалиться)
-    if (CONFIG.SafeMode && me.IsInvisible()) return;
+    // Читаем настройки прямо из меню (а не из констант)
+    const threshold = menuMinHP.value;
+    const delay = menuDelay.value;
 
-    // 4. Ищем Армлет
-    // Внимание: метод может называться GetItem, FindItem или Inventory.GetItem
-    // Проверьте во враппере!
-    const armlet = me.GetItem(CONFIG.ArmletName); 
-    
-    // Если армлета нет
+    const armlet = me.GetItem("item_armlet");
     if (!armlet) return;
 
     const currentTime = Date.now();
 
-    // --- ЛОГИКА ВТОРОЙ ЧАСТИ (ВКЛЮЧЕНИЕ) ---
-    // Если мы выключили армлет и ждем задержку перед включением
+    // Логика возврата (ВКЛЮЧЕНИЕ)
     if (pendingToggleOn) {
-        if (currentTime - lastToggleTime >= CONFIG.ToggleDelay) {
-            // Включаем обратно
-            armlet.Cast(); // Или armlet.Toggle() или armlet.Use()
+        if (currentTime - lastToggleTime >= delay) {
+            armlet.Cast(); // Включаем
             pendingToggleOn = false;
             lastToggleTime = currentTime;
-            console.log("[ArmletScript] Re-enabled!");
         }
-        return; // Больше ничего не делаем в этом кадре
+        return;
     }
 
-    // --- ЛОГИКА ПЕРВОЙ ЧАСТИ (ПРОВЕРКА ХП) ---
-    
-    // Получаем текущее здоровье
-    const myHealth = me.Health; // Или me.GetHealth()
+    // Логика абуза (ВЫКЛЮЧЕНИЕ)
+    const myHealth = me.Health;
 
-    // Если ХП меньше порога и прошло достаточно времени с последнего переключения
-    if (myHealth < CONFIG.MinHP && (currentTime - lastToggleTime > 500)) {
+    // Используем threshold из меню
+    if (myHealth < threshold && (currentTime - lastToggleTime > 500)) {
         
-        // Если Армлет сейчас ВКЛЮЧЕН (дает силу, но отнимает ХП)
-        // Враппер может иметь свойство IsToggled, IsActive или GetToggleState()
-        if (armlet.IsToggled()) { 
-            // 1. Выключаем (HP упадет до 1)
-            armlet.Cast(); 
-            
-            // 2. Ставим флаг, что нужно включить обратно
+        // Проверка: включен ли армлет?
+        // Используем проверку баффа, так надежнее
+        const isArmletActive = me.HasModifier("modifier_item_armlet_unholy_strength");
+
+        if (isArmletActive) {
+            armlet.Cast(); // Выключаем
             pendingToggleOn = true;
             lastToggleTime = currentTime;
-            console.log("[ArmletScript] Disabled, waiting to re-enable...");
-        } 
-        // Если Армлет выключен, но ХП все равно мало (экстренная ситуация)
-        else {
+        } else {
+            // Если выключен, но хп мало - просто включаем
             armlet.Cast();
             lastToggleTime = currentTime;
         }
     }
 });
 
-// Слушатель начала игры для сброса переменных
+// Сброс при начале новой игры
 EventsSDK.on("GameStarted", () => {
-    console.log("[ArmletScript] New Game Started");
     pendingToggleOn = false;
     lastToggleTime = 0;
 });
