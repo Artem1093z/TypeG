@@ -1,9 +1,0 @@
-{
-  "name": "armlet-script",
-  "version": "1.0.0",
-  "main": "index.ts",
-  "description": "My Armlet Script",
-  "dependencies": {
-    "github.com/octarine-public/wrapper": "https://github.com/octarine-public/wrapper"
-  }
-}
